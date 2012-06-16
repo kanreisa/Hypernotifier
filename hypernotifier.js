@@ -10,44 +10,47 @@ var Hypernotifier = Class.create({
 	/**
 	 * Constructor
 	**/
-	initialize: function(element, param){
+	initialize: function _init(targetElement, opt) {
 		/*- Target element -*/
-		this.target      = $(element);
+		this.target      = $(targetElement || document.body);
+		
+		if (!opt) var opt = {};
 		
 		/*- Options -*/
-		this.classPrefix   = param.classPrefix   || 'hypernotifier';
-		this.desktopNotify = param.desktopNotify || false;//Notification API(experimental)
-		this.scriptaculous = param.scriptaculous || true;
+		this.classPrefix   = opt.classPrefix   || 'hypernotifier';
+		this.desktopNotify = opt.desktopNotify || false;//Notification API(experimental)
 		
-		this.hAlign  = param.hAlign  || 'right';
-		this.vAlign  = param.vAlign  || 'bottom';
-		this.hMargin = param.hMargin || 10;//pixels
-		this.vMargin = param.vMargin || 10;//pixels
-		this.spacing = param.spacing || 5;//pixels
-		this.timeout = param.timeout || 3;//seconds
+		this.hAlign  = opt.hAlign  || 'right';
+		this.vAlign  = opt.vAlign  || 'bottom';
+		this.hMargin = opt.hMargin || 10;//pixels
+		this.vMargin = opt.vMargin || 10;//pixels
+		this.spacing = opt.spacing || 10;//pixels
+		this.timeout = opt.timeout || 5;//seconds
 		
-		this.icon    = param.icon    || null;
-		this.title   = param.title   || 'Notification';
+		this.title   = opt.title   || 'Notification';
+		
+		this.notifies = [];
+		
+		return this;
 	}//<--initialize()
 	,
 	/**
 	 * Create
 	**/
-	create: function(param){
+	create: function _create(opt) {
 		/*- Desktop notify -*/
-		if(this.desktopNotify === true){
-			if(this.createDesktopNotify(param) === true){
-				return true;
+		if (this.desktopNotify === true) {
+			if (this.createDesktopNotify(opt) === true) {
+				return this;
 			}
 		}
 		
 		/*- Setting up -*/
-		var icon    = param.icon    || this.icon;
-		var title   = param.title   || this.title;
-		var message = param.message || null;
-		var onClick = param.onClick || null;
-		var onClose = param.onClose || null;
-		var timeout = (typeof param.timeout != 'undefined') ? param.timeout : this.timeout;
+		var title   = opt.title   || this.title;
+		var message = opt.message || opt.body || opt.content || opt.text || null;
+		var onClick = opt.onClick || null;
+		var onClose = opt.onClose || null;
+		var timeout = (typeof opt.timeout !== 'undefined') ? opt.timeout : this.timeout;
 		
 		var isAlive = true;
 		var closeTimer;
@@ -55,25 +58,6 @@ var Hypernotifier = Class.create({
 		/*- Positions -*/
 		var hPosition   = this.hMargin;
 		var vPosition   = this.vMargin;
-		
-		/*- Get showing -*/
-		var showing = this.target.getElementsByClassName(this.classPrefix + '-notify');
-		
-		if(showing.length !== 0){
-			if(typeof this.target.getHeight == 'undefined'){
-				var targetHeight = window.innerHeight || document.body.clientHeight;
-			}else{
-				var targetHeight = this.target.getHeight() || window.innerHeight || document.body.clientHeight;
-			}
-			
-			for(var i = 0; showing.length > i; i++){
-				vPosition += this.spacing + showing[i].getHeight();
-				if(vPosition > (targetHeight + this.vMargin)){
-					vPosition = this.vMargin;
-					hPosition += this.spacing + showing[i].getWidth();
-				}
-			}
-		}
 		
 		/*- Create a new element for notify -*/
 		//
@@ -91,29 +75,26 @@ var Hypernotifier = Class.create({
 			new Element('div', {className: this.classPrefix + '-message'}).insert(message)
 		).insert(
 			//close
-			new Element('div', {className: this.classPrefix + '-close'}).insert('&#xd7;').observe('click', function(e){
+			new Element('div', {className: this.classPrefix + '-close'}).insert('&#xd7;').observe('click', function(e) {
 				e.stop();
-				if(isAlive){
+				if (isAlive) {
 					closeNotify();
 				}
 			})
 		).hide();
-		if(icon !== null){
-			notify.addClassName(this.classPrefix + '-icon');
-			notify.style.backgroundImage = 'url(' + icon + ')';
-		}
+		
 		notify.style.position      = 'absolute';
 		notify.style[this.hAlign] = hPosition + 'px';
 		notify.style[this.vAlign] = vPosition + 'px';
 		
 		/*- onClick event -*/
-		if(onClick === null){
-			notify.observe('click', function(e){
+		if (onClick === null) {
+			notify.observe('click', function(e) {
 				closeNotify();
 			});
-		}else{
+		} else {
 			notify.style.cursor = 'pointer';
-			notify.observe('click', function(e){
+			notify.observe('click', function(e) {
 				e.stop();
 				onClick();
 				closeNotify();
@@ -124,58 +105,64 @@ var Hypernotifier = Class.create({
 		this.target.insert(notify);
 		
 		/*- Show notify -*/
-		if(this.scriptaculous){
-			notify.appear({duration:0.3});
-		}else{
-			notify.show();
-		}
+		notify.show();
+		setTimeout(function() {
+			notify.style.opacity = 1;
+		}, 10);
 		
 		/*- Set timeout -*/
-		if(timeout !== 0){
-			closeTimer = setTimeout(function(){
-				if(isAlive){
+		if (timeout !== 0) {
+			function onTimeout() {
+				if (isAlive) {
 					closeNotify();
 				}
-			}, timeout * 1000);
+			}
+			
+			closeTimer = setTimeout(onTimeout, timeout * 1000);
 			
 			//Clear timeout
-			notify.observe('mouseover', function(){
-				notify.stopObserving('mouseover');
+			notify.observe('mouseover', function() {
 				clearTimeout(closeTimer);
+				closeTimer = setTimeout(onTimeout, timeout * 1000);
 			});
 		}
 		
 		/*- Remove a notify element -*/
-		var closeNotify = function(){
+		var closeNotify = function() {
 			isAlive = false;
 			
-			if(this.scriptaculous){
-				notify.fade({duration:0.4});
-			}else{
+			if (Prototype.Browser.IE) {
 				notify.hide();
+			} else {
+				notify.style.opacity = 0;
 			}
 			
 			//onClose event
-			if(onClose !== null){
+			if (onClose !== null) {
 				onClose();
 			}
 			
-			setTimeout(function(){
+			setTimeout(function() {
 				notify.remove();
-			}, 500);
+				
+				this.notifies = this.notifies.without(notify);
+				this.positioner();
+			}.bind(this), 300);
 		}.bind(this);
 		
-		return true;
+		this.notifies.push(notify);
+		this.positioner();
+		
+		return this;
 	}//<--create()
 	,
-	createDesktopNotify: function(param){
+	createDesktopNotify: function _createDesktopNotify(opt) {
 		/*- Setting up -*/
-		var icon    = param.icon    || this.icon;
-		var title   = param.title   || this.title;
-		var message = param.message || null;
-		var onClick = param.onClick || null;
-		var onClose = param.onClose || null;
-		var timeout = (typeof param.timeout != 'undefined') ? param.timeout : this.timeout;
+		var title   = opt.title   || this.title;
+		var message = opt.message || opt.body || opt.content || opt.text || null;
+		var onClick = opt.onClick || null;
+		var onClose = opt.onClose || null;
+		var timeout = (typeof opt.timeout !== 'undefined') ? opt.timeout : this.timeout;
 		
 		var isAlive = true;
 		var notify  = null;
@@ -183,44 +170,44 @@ var Hypernotifier = Class.create({
 		var closeTimer;
 		
 		/*- Check supported -*/
-		if(typeof window.webkitNotifications == 'undefined'){
+		if (typeof window.webkitNotifications == 'undefined') {
 			return false;
-		}else{
+		} else {
 			vendor = 'webkit';
 		}
 		
 		/*- Get Permissions -*/
-		if((vendor == 'webkit') && (window.webkitNotifications.checkPermission() !== 0)) {
-			window.webkitNotifications.requestPermission(function(){ this.createDesktopNotify(param) }.bind(this));
+		if ((vendor == 'webkit') && (window.webkitNotifications.checkPermission() !== 0)) {
+			window.webkitNotifications.requestPermission(function() { this.createDesktopNotify(opt) }.bind(this));
 			return false;
 		}
 		
 		/*- Create a desktop notification -*/
-		if(vendor == 'webkit'){
-			notify = window.webkitNotifications.createNotification(icon, title, message.stripTags());
+		if (vendor == 'webkit') {
+			notify = window.webkitNotifications.createNotification(null, title, message.stripTags());
 		}
 		
 		/*- Set timeout -*/
-		if(timeout !== 0){
-			closeTimer = setTimeout(function(){
-				if(isAlive){
+		if (timeout !== 0) {
+			closeTimer = setTimeout(function() {
+				if (isAlive) {
 					notify.cancel();
 				}
 			}, timeout * 1000);
 		}
 		
 		/*- onClick event -*/
-		notify.onclick = function(){
-			if(onClick !== null){
+		notify.onclick = function() {
+			if (onClick !== null) {
 				onClick();
 			}
 			notify.cancel();
 		};
 		
 		/*- onClose event -*/
-		notify.onclose = function(){
+		notify.onclose = function() {
 			isAlive = false;
-			if(onClose !== null){
+			if (onClose !== null) {
 				onClose();
 			}
 		};
@@ -230,4 +217,25 @@ var Hypernotifier = Class.create({
 		
 		return true;
 	}//<--createDesktopNotify()
+	,
+	positioner: function _positioner() {
+		var tH = (this.target === document.body) ? (window.innerHeight || document.body.clientHeight) : this.target.getHeight();
+		var pX = 0;
+		var pY = 0;
+		
+		this.notifies.each(function(notify, i) {
+			var x = this.vMargin + pX;
+			var y = this.hMargin + pY;
+			
+			notify.style[this.hAlign] = x.toString(10) + 'px';
+			notify.style[this.vAlign] = y.toString(10) + 'px';
+			
+			pY += this.spacing + notify.getHeight();
+			
+			if ((pY + notify.getHeight() + this.vMargin + this.spacing) >= tH) {
+				pY  = 0;
+				pX += this.spacing + notify.getWidth();
+			}
+		}.bind(this));
+	}
 });
